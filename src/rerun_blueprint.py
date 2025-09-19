@@ -12,11 +12,11 @@ def setup_rerun_blueprint():
                 rrb.Spatial3DView(
                     name="3D (All)",
                     origin="world",              # world 아래 모든 엔티티 표시
-                    contents= "world/points",
+                    #contents= "world",
                 ),
                 rrb.Spatial3DView(
                     name="3D (Points)",
-                    origin="world",
+                    origin="world/points",
                     contents="world/points",     # 이 뷰에선 points만 표시
                 ),
             ),
@@ -55,7 +55,8 @@ def setup_rerun_blueprint():
 def log_description():
     description = """
     It visualizes RGB and Depth data from ZED camera's ROSBAG.  
-    - **3D View**: point cloud and camera position  
+    - **3D View**: point cloud of full view and camera position  
+    - **3D View (Points)**: point cloud of points view and camera position
     - **RGB & Depth**: RGB and Depth information displayed as an overlay  
     - **RGB Tab**: RGB image only  
     - **Depth Tab**: Depth map only  

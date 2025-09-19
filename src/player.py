@@ -1,6 +1,5 @@
 from pathlib import Path
 from site import check_enableusersite
-
 import time
 import numpy as np
 import cv2
@@ -9,33 +8,103 @@ from rosbags.rosbag2 import Reader
 from rosbags.serde import deserialize_cdr
 from .intrinsic_parameter import check_rosbag_path, get_camera_parameter
 from .rerun_blueprint import setup_rerun_blueprint, log_description
-from .pointcloud_setting import pointcloud2_to_xyz_numpy, rotate_pointcloud, color_pointcloud
+from .point_cloud import rotate_pointcloud, pc_to_numpy
+from .mask import depth_mask, segmenter
+from .odometry import pose_to_matrix, invert_transform, rotation_matrix_to_quaternion_xyzw, rotate_odomatry
+
+
 
 
 
 def run(bag_path: Path, config: dict):
-    # 설정 파일에서 토픽 이름 가져오기
+    # config.yaml -> setted topics 
     image_topic = config["ros_topics"]["image"]
     depth_topic = config["ros_topics"]["depth"]
-    camera_info_topic = config["ros_topics"]["camera_info"]
+    camera_info_topic = config["ros_topics"]["camera_left_info"]
     point_cloud_topic = config["ros_topics"]["point_cloud"]
+    odometry_topic = config["ros_topics"]["odometry"]
     
-    # 설정 파일에서 시각화 파라미터 가져오기
-    point_radius = config["visualization"]["point_radius"]
-    
+    # config.yaml -> visualization parameters
+    point_radius = config["visualization"]["point_radius"] # 0.005
+    depth_thr_max = config["visualization"]["depth_thr_max"] # 0.85m
+    depth_thr_min = config["visualization"]["depth_thr_min"] # 0.4m
+    use_segmentation = config["visualization"]["use_segmentation"] # True or False
+    image_plane_distance = config["visualization"]["image_plane_distance"] # 카메라 프러스텀 크기 조정 가능 
+
+    # rerun app id & logging blueprint & description
     app_id = f"zed_viewer_{bag_path.name}"
     rr.init(app_id, spawn=True)
     setup_rerun_blueprint()
     log_description()
     
-    
+    # check rosbag path
     if not check_rosbag_path(bag_path):
         return
 
+    
+    # 분기 추가 or rerun_blueprint 상에서 분기 추가
+    # 어떤 식으로 포인트 클라우드 시각화할 것인지 
+    # Intrinsic parameter register for pinhole fixing
+    w, h, cx, cy, fx, fy = get_camera_parameter(bag_path, camera_info_topic)
+    rr.log("world/camera/image",
+        rr.Pinhole(
+            resolution=[w, h], focal_length=[fx, fy], principal_point=[cx, cy],
+            image_plane_distance=image_plane_distance,
+        ),
+        static=True,
+    )
+
+    # coordinate axis visualization - world view
+    axis_length = 0.1  # axis length: 10cm
+    rr.log(
+        "world",
+        rr.Arrows3D(
+            origins=[[0, 0, 0]],
+            vectors=[
+                [axis_length, 0, 0],  # X축 (Right)
+                [0, axis_length, 0],  # Y축 (Down)
+                [0, 0, axis_length],  # Z축 (Forward)
+            ],
+            colors=[
+                [255, 0, 0],
+                [0, 255, 0],
+                [0, 0, 255],
+            ],
+        ),
+        static=True,
+    )
+    
+    # coordinate axis visualization - points view
+    axis_length = 0.1  # axis length: 10cm
+    rr.log(
+        "world/points",
+        rr.Arrows3D(
+            origins=[[0, 0, 0]],
+            vectors=[
+                [axis_length, 0, 0],  # X축 (Right)
+                [0, axis_length, 0],  # Y축 (Down)
+                [0, 0, axis_length],  # Z축 (Forward)
+            ],
+            colors=[
+                [255, 0, 0],
+                [0, 255, 0],
+                [0, 0, 255],
+            ],
+        ),
+        static=True,
+    )
+
+    
+    traj = []
+    origin_T_inv = None  # 초기 포즈의 역변환(왼쪽 카메라/로봇 초기 위치를 원점으로)
+    traj_radius = 0.001
+
+    # rosbag reading & data logging
     with Reader(bag_path) as reader:
-        # conns 리스트 생성 시 설정값 사용
-        topics_to_read = [image_topic, depth_topic, point_cloud_topic]
+        # Connection 중 필요한 topic만 필터링
+        topics_to_read = [image_topic, depth_topic, point_cloud_topic, odometry_topic]
         conns = [c for c in reader.connections if c.topic in topics_to_read]
+        
         previous_timestamp = None
         for conn, timestamp, rawdata in reader.messages(conns):
             # 동영상 재생 속도 늦추기
@@ -48,51 +117,107 @@ def run(bag_path: Path, config: dict):
 
             # time synchronization
             rr.set_time_nanos("rec_time", timestamp)
+            
+            # data deserialization by rosbag library
             msg = deserialize_cdr(rawdata, conn.msgtype)
             
-            # data logging
+            """data logging"""
             # rgb image
             if conn.topic == image_topic:
+                # consider color encoding
                 buf = np.frombuffer(msg.data, dtype=np.uint8)
-                if msg.encoding in ("bgra8", "rgba8"):
-                    img = buf.reshape(msg.height, msg.step // 4, 4)[:, :msg.width, :]
-                    code = cv2.COLOR_BGRA2RGB if msg.encoding == "bgra8" else cv2.COLOR_RGBA2RGB
-                    img_rgb = cv2.cvtColor(img, code)
-                elif msg.encoding == "bgr8":
-                    img = buf.reshape(msg.height, msg.step // 3, 3)[:, :msg.width, :]
-                    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-                elif msg.encoding == "rgb8":
-                    img_rgb = buf.reshape(msg.height, msg.step // 3, 3)[:, :msg.width, :]
-                else:
-                    img_rgb = None
-                if img_rgb is not None:
-                    rr.log("world/camera/image/rgb", rr.Image(img_rgb))
+                img = buf.reshape(msg.height, msg.step // 4, 4)[:, :msg.width, :]
+                code = cv2.COLOR_BGRA2RGB if msg.encoding == "bgra8" else cv2.COLOR_RGBA2RGB
+                img_rgb = cv2.cvtColor(img, code)
+                
+                rr.log("world/camera/image/rgb", rr.Image(img_rgb))
 
             # depth image
             elif conn.topic == depth_topic and msg.encoding == "32FC1":
                 depth = np.frombuffer(msg.data, dtype=np.float32).reshape(msg.height, msg.width)
-                rr.log("world/camera/image/depth", rr.DepthImage(depth, meter=1.0))
+                rr.log("world/camera/image/depth", rr.DepthImage(depth, meter = 1.0))
+            
             
             # point cloud
             elif conn.topic == point_cloud_topic:
-                pts = pointcloud2_to_xyz_numpy(msg)
-                # print(type(pts), getattr(pts, "dtype", None), getattr(pts, "shape", None))
-                # print("pc frame_id =", msg.header.frame_id)
-                if pts.size:
-                    pts= rotate_pointcloud(pts)
-                    color = color_pointcloud(pts)
-                    rr.log("world/points", rr.Points3D(pts, colors=color, radii=point_radius))
+                xyz_orig = pc_to_numpy(msg, 'xyz')  # (H, W, 3)
+                colors = pc_to_numpy(msg, 'rgb') # (H, W, 3)
 
+                # rotate point cloud while maintaining 2D structure
+                # 기본 포인트 클라우드 로딩 시 회전 된 형태라 추가 필요
+                shape = xyz_orig.shape
+                xyz_rot = rotate_pointcloud(xyz_orig.reshape(-1, 3)).reshape(shape)
+
+                # create valid point mask (exclude NaN/inf)
+                valid_mask = ~np.isnan(xyz_rot).any(axis=2)
+                valid_mask = np.isfinite(xyz_orig).all(axis=2)
+
+                # create background removal mask (optional)
+                if use_segmentation and 'img_rgb' in locals() and img_rgb is not None:
+                    seg_mask_orig = segmenter.get_mask(img_rgb)
+                    d_mask = depth_mask(xyz_rot, depth_thr_min, depth_thr_max)
+
+                    # seg_mask를 d_mask와 같은 크기로 리사이즈
+                    target_shape = d_mask.shape  # (256, 448)
+                    seg_mask = cv2.resize(
+                        seg_mask_orig.astype(np.uint8),
+                        (target_shape[1], target_shape[0]),  # cv2.resize expects (width, height)
+                        interpolation=cv2.INTER_NEAREST
+                    ).astype(bool)
+
+                    # 모든 마스크 결합 
+                    final_mask = valid_mask & d_mask & seg_mask
                 else:
-                    # Intrinsic parameter register
-                    w, h, cx, cy, fx, fy = get_camera_parameter(bag_path, camera_info_topic)
-    
-                    # pinhole 고정
-                    rr.log("world/camera/image",
-                        rr.Pinhole(
-                            resolution=[w, h],
-                            focal_length=[fx, fy],
-                            principal_point=[cx, cy],
-                        ),
-                        static=True,
-                    )
+                    # 깊이 필터링만 적용 
+                    final_mask = valid_mask & d_mask
+
+                # final mask applied to point cloud and color (1D array)
+                pts_filtered_rot = xyz_rot[final_mask]
+                colors_filtered = colors[final_mask]
+
+                if pts_filtered_rot.size == 0:
+                    continue
+                
+                # log to rerun
+                rr.log("world/points", rr.Points3D(pts_filtered_rot, colors=colors_filtered, radii=point_radius))
+            
+            # visualization odometry data
+            elif conn.topic == odometry_topic:
+                # velocity time series
+                rr.log("odometry/vel", rr.Scalars(msg.twist.twist.linear.x))
+                rr.log("odometry/ang_vel", rr.Scalars(msg.twist.twist.angular.z))
+
+                # odometry data logging
+                p = msg.pose.pose.position
+                q = msg.pose.pose.orientation
+                pos_abs = [p.x, p.y, p.z]
+                quat_abs = [q.x, q.y, q.z, q.w]
+
+                # origin to relative transformation
+                T_curr = pose_to_matrix(pos_abs, quat_abs)
+                if origin_T_inv is None:
+                    origin_T_inv = invert_transform(T_curr)
+                T_rel = origin_T_inv @ T_curr
+
+                # rotation 
+                R_row = rotate_odomatry()
+                R_fix = R_row.T
+                R_adj = R_fix @ T_rel[:3, :3]
+                t_adj = (R_fix @ T_rel[:3, 3]).tolist()
+                q_adj = rotation_matrix_to_quaternion_xyzw(R_adj)
+
+                rr.log("world/points/robot", rr.Transform3D(
+                    translation=t_adj,
+                    rotation=rr.Quaternion(xyzw=q_adj)
+                ))
+                
+                # cumulative trajectory logging
+                traj.append(t_adj)
+                if len(traj) >= 2:
+                    rr.log("world/points", rr.LineStrips3D([traj], colors=[0, 255, 255], radii = traj_radius))
+            
+                                      
+ 
+
+
+        

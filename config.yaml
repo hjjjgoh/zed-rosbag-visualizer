@@ -1,9 +1,15 @@
 ros_topics:
   image: "/zed/zed_node/left/image_rect_color"
   depth: "/zed/zed_node/depth/depth_registered"
-  camera_info: "/zed/zed_node/left/camera_info"
+  camera_rgb_info: "/zed/zed_node/rgb_raw/camera_info"
+  camera_left_info: "/zed/zed_node/left/camera_info"
+  camera_right_info: "/zed/zed_node/right/camera_info"
   point_cloud: "/zed/zed_node/point_cloud/cloud_registered"
   odometry: "/zed/zed_node/odom"
 
 visualization:
   point_radius: 0.005
+  depth_thr_max: 0.85
+  depth_thr_min: 0.4
+  use_segmentation: true
+  image_plane_distance: 0.3
