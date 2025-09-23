@@ -80,3 +80,25 @@ def invert_transform(T):
     T_inv[:3, :3] = Rm.T
     T_inv[:3, 3] = -Rm.T @ t
     return T_inv
+
+
+def process_odometry(msg, origin_T_inv):
+    p = msg.pose.pose.position
+    q = msg.pose.pose.orientation
+    pos_abs = [p.x, p.y, p.z]
+    quat_abs = [q.x, q.y, q.z, q.w]
+
+    # origin to relative transformation
+    T_curr = pose_to_matrix(pos_abs, quat_abs)
+    if origin_T_inv is None:
+        origin_T_inv = invert_transform(T_curr)
+    T_rel = origin_T_inv @ T_curr
+
+    # rotation 
+    R_row = rotate_odomatry()
+    R_fix = R_row.T
+    R_adj = R_fix @ T_rel[:3, :3]
+    t_adj = (R_fix @ T_rel[:3, 3]).tolist()
+    q_adj = rotation_matrix_to_quaternion_xyzw(R_adj)
+    
+    return origin_T_inv, t_adj, q_adj

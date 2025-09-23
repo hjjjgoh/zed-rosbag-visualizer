@@ -5,17 +5,7 @@ from transformers import AutoModelForImageSegmentation
 from PIL import Image
 
 def depth_mask(pts: np.ndarray, min_depth: float, max_depth: float) -> np.ndarray:
-    """
-    Creates a boolean mask for points within a specified depth range.
-
-    Args:
-        pts (np.ndarray): A NumPy array of points with shape (N, 3), where the third column is depth.
-        min_depth (float): The minimum depth threshold.
-        max_depth (float): The maximum depth threshold.
-
-    Returns:
-        np.ndarray: A boolean array of shape (N,) where True indicates points within the depth range.
-    """
+    """Creates a boolean mask for points within a specified depth range."""
     return (pts[..., 2] > min_depth) & (pts[..., 2] < max_depth)
 
 

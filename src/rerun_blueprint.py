@@ -11,16 +11,14 @@ def setup_rerun_blueprint():
             rrb.Tabs(
                 rrb.Spatial3DView(
                     name="3D (All)",
-                    origin="world",              # world 아래 모든 엔티티 표시
+                    origin="world",
                     #contents= "world",
                 ),
-                rrb.Spatial3DView(
-                    name="3D (Points)",
-                    origin="world/points",
-                    contents="world/points",     # 이 뷰에선 points만 표시
-                ),
             ),
-            rrb.TextDocumentView(name="Description", origin="/description"),
+            rrb.TextDocumentView(
+                name="Description", 
+                origin="/description"
+                ),
             row_shares=[7, 3],
         ),
         rrb.Vertical(
@@ -29,16 +27,21 @@ def setup_rerun_blueprint():
                 origin="world/camera/image",
                 overrides={"world/camera/image/rgb": rr.Image.from_fields(opacity=0.5)},
             ),
+            rrb.Spatial2DView(
+                name="RGB",
+                origin="world/camera/image",
+                contents="world/camera/image/rgb",
+            ),
             rrb.Tabs(
                 rrb.Spatial2DView(
-                    name="RGB",
-                    origin="world/camera/image",
-                    contents="world/camera/image/rgb",
+                    name="Depth",
+                    origin="image",
+                    contents="image/depth",
                 ),
                 rrb.Spatial2DView(
-                    name="Depth",
+                    name="Depth Processed",
                     origin="world/camera/image",
-                    contents="world/camera/image/depth",
+                    contents="world/camera/image/depth_processed",
                 ),
             ),
             name="2D Views",

@@ -1,5 +1,7 @@
 ros_topics:
-  image: "/zed/zed_node/left/image_rect_color"
+  image_rect: "/zed/zed_node/left/image_rect_color"
+  image_left: "/zed/zed_node/left/image_rect_color"
+  image_right: "/zed/zed_node/right/image_rect_color"
   depth: "/zed/zed_node/depth/depth_registered"
   camera_rgb_info: "/zed/zed_node/rgb_raw/camera_info"
   camera_left_info: "/zed/zed_node/left/camera_info"
@@ -12,4 +14,5 @@ visualization:
   depth_thr_max: 0.85
   depth_thr_min: 0.4
   use_segmentation: true
-  image_plane_distance: 0.3
+  image_plane_distance: 0.2 # 카메라 프러스텀 크기 조정 가능
+  traj_radius: 0.001

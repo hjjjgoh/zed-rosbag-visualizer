@@ -4,7 +4,6 @@ from rosbags.serde import deserialize_cdr
 from pathlib import Path
 
 
-
 # check ROSBAG path 
 def check_rosbag_path(bag_path: Path) -> bool:
     # check path exists

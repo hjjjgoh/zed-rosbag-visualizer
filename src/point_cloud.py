@@ -11,7 +11,9 @@ def remove_nan(pts, remove_nans=True):
 
 
 def rotate_pointcloud(pts):
-    """x축 기준 -90도 회전, y축 기준 +90도 회전 """
+    """specific rotation to align the point cloud with the RDF coordinate system.
+    ros data와 rerun coordinate가 달라서 변환 필요
+    x축 기준 -90도 회전, y축 기준 +90도 회전"""
     R = np.array([
         [0, 0, 1], 
         [-1, 0, 0], 
@@ -77,3 +79,7 @@ def pc_to_numpy(msg, field_name: str):
 	
     else:
         raise ValueError(f"Unsupported field_name: {field_name} (use 'xyz' or 'rgb')")
+
+
+"""NVIDIA foundation stereo"""
+# fined disparity 
