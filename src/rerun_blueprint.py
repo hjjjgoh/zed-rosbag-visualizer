@@ -43,6 +43,11 @@ def setup_rerun_blueprint():
                     origin="world/camera/image",
                     contents="world/camera/image/depth_processed",
                 ),
+                rrb.Spatial2DView(
+                    name="FoundationSteroe_Disparity",
+                    origin="image",
+                    contents="image/disparity_vis",
+                ),
             ),
             name="2D Views",
             row_shares=[3, 3, 2],

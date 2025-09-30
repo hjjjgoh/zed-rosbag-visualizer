@@ -82,4 +82,5 @@ def pc_to_numpy(msg, field_name: str):
 
 
 """NVIDIA foundation stereo"""
-# fined disparity 
+# disparity / depth map
+# 

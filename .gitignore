@@ -8,3 +8,14 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Model weights (too large for git)
+models/*.pth
+models/*.pt
+models/*.ckpt
+
+# Output files
+output/
+
+# Jupyter checkpoints
+.ipynb_checkpoints/

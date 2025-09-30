@@ -1,5 +1,6 @@
 ros_topics:
   image_rect: "/zed/zed_node/left/image_rect_color"
+
   image_left: "/zed/zed_node/left/image_rect_color"
   image_right: "/zed/zed_node/right/image_rect_color"
   depth: "/zed/zed_node/depth/depth_registered"
@@ -16,3 +17,10 @@ visualization:
   use_segmentation: true
   image_plane_distance: 0.2 # 카메라 프러스텀 크기 조정 가능
   traj_radius: 0.001
+  baseline_m: 0.001
+
+  # intrinsic parameters 추가 필요
+
+# Model paths
+models:
+  disparity_weights_path: "models/model_best_bp2.pth"
