@@ -107,12 +107,8 @@ def run(bag_path: Path, config: dict):
     # L/R 페어링 버퍼 & 카운터
     left_pool = {}   # {t_ns: torch.Tensor}
     l_cnt = r_cnt = pair_cnt = 0
-
-
-    t_L = None
     t_R = None
-    left_buf = None
-    left_ts = None
+
 
     # rosbag reading & data logging
     with Reader(bag_path) as reader:
@@ -138,7 +134,7 @@ def run(bag_path: Path, config: dict):
             msg = deserialize_cdr(rawdata, conn.msgtype)
             
             """data logging"""
-            # rgb image (왼쪽 이미지로도 사용)
+            #  ───────── RGB ─────────
             if conn.topic == image_topic:
                 # consider color encoding
                 buf = np.frombuffer(msg.data, dtype=np.uint8)
@@ -150,46 +146,129 @@ def run(bag_path: Path, config: dict):
                 rr.log("world/camera/image/rgb", rr.Image(img_rgb))
                 latest_img_rgb = img_rgb
                 
-                # ★ 왼쪽 이미지로도 사용 (left_pool에 추가)
+                #  ───────── Left ─────────
                 l_cnt += 1
                 t_ns = ros_time_ns(msg)
                 left_pool[t_ns] = disparity_estimator.preprocess(img_rgb)  # 이미 변환된 img_rgb 사용
                 if l_cnt % 30 == 0:
                     print(f"[L] frames={l_cnt}, pool={len(left_pool)} (t={t_ns})")
             
-            # depth image
-            elif conn.topic == depth_topic and msg.encoding == "32FC1":
-                depth = np.frombuffer(msg.data, dtype=np.float32).reshape(msg.height, msg.width)
-                rr.log("image/depth", rr.DepthImage(depth, meter = 1.0))
-                
-                # Start with a mask that includes all valid depth points
-                depth_mask = np.isfinite(depth) & (depth > 0)
 
-                # If segmentation is enabled, combine its mask
-                if use_segmentation and latest_img_rgb is not None:
-                    # Generate mask from the latest RGB image
-                    foreground_mask_orig = segmenter.get_mask(latest_img_rgb)
+            # ───────── Right ─────────
+            elif conn.topic == image_R_topic:
+                r_cnt += 1
+                t_ns = ros_time_ns(msg)
+                img_R = msg_to_rgb_numpy(msg)
+                t_R = disparity_estimator.preprocess(img_R)
+
+                matched_left = None
+
+                # exact match
+                if t_ns in left_pool:
+                    matched_left = left_pool.pop(t_ns)
+                else:
+                    # ±50ms 근접 매칭
+                    tol = 50_000_000  # 50ms
+                    if left_pool:
+                        nearest = min(left_pool.keys(), key=lambda k: abs(k - t_ns))
+                        if abs(nearest - t_ns) <= tol:
+                            matched_left = left_pool.pop(nearest)
+                        else:
+                            pass
+                    else:
+                        pass
+
+                if matched_left is not None:
+                    pair_cnt += 1
+                    disp = disparity_estimator.estimate_disparity(matched_left, t_R)
+                    dmin, dmax = np.nanmin(disp), np.nanmax(disp)
+                    valid = np.isfinite(disp).sum()
+
+                    valid = np.isfinite(disp)
+                    if np.any(valid):
+                        # 극단값 영향 줄이기 위해 퍼센타일로 범위 설정 (2~98%)
+                        dmin_v = np.percentile(disp[valid], 2)
+                        dmax_v = np.percentile(disp[valid], 98)
+                        if dmax_v <= dmin_v:  # 안전장치
+                            dmin_v, dmax_v = float(np.min(disp[valid])), float(np.max(disp[valid]))
+                    else:
+                        dmin_v, dmax_v = 0.0, 1.0  # 전부 invalid인 경우
                     
-                    # Resize mask to match depth image dimensions
-                    target_shape = depth.shape
-                    foreground_mask = cv2.resize(
-                        foreground_mask_orig.astype(np.uint8),
-                        (target_shape[1], target_shape[0]),  # cv2.resize expects (width, height)
-                        interpolation=cv2.INTER_NEAREST
-                    ).astype(bool)
-                    depth_mask &= foreground_mask
+                    # 0~1 정규화 (invalid는 0으로)
+                    norm = (np.clip(disp, dmin_v, dmax_v) - dmin_v) / (dmax_v - dmin_v + 1e-6)
+                    norm[~valid] = 0.0
+
+                    # 8bit로 변환 → 컬러맵 적용(BGR) → RGB 변환
+                    norm8 = (norm * 255).astype(np.uint8)
+                    color_bgr = cv2.applyColorMap(norm8, cv2.COLORMAP_TURBO)  # cv2.COLORMAP_JET도 가능
+                    color_rgb = cv2.cvtColor(color_bgr, cv2.COLOR_BGR2RGB)
+
+                    rr.log("image/disparity_vis", rr.Image(color_rgb))
+                    rr.log(
+                        "image/disparity_stats",
+                        rr.TextLog(f"min={dmin:.3f}, max={dmax:.3f}, valid={valid.sum()}")
+                    )
+                    
+                    # Background remover
+                    # disparity -> depth
+                    eps = 1e-6
+                    depth_est = (fx * baseline_m) / (disp + eps)      # [H,W] float
+                    depth_est = depth_est.astype(np.float32)
+                    depth_est[~np.isfinite(depth_est)] = 0.0
+
+                    # segmentation mask
+                    seg_mask = None
+                    if use_segmentation and latest_img_rgb is not None:
+                        try:
+                            seg_mask = segmenter.get_mask(latest_img_rgb)  # bool [H,W]
+                            seg_mask = cv2.resize(
+                                seg_mask.astype(np.uint8),
+                                (disp.shape[1], disp.shape[0]),
+                                interpolation=cv2.INTER_NEAREST
+                            ).astype(bool)
+                        except Exception as _:
+                            seg_mask = None
+
+                    # depth min/ max mask
+                    range_mask = np.ones_like(disp, dtype=bool)
+                    baseline_m = locals().get("baseline_m", None)  # 있으면 사용, 없으면 None
+                    if baseline_m is not None and baseline_m > 0:
+                        # depth[m] = fx * baseline[m] / disparity[pixels]
+                        depth_est = (fx * baseline_m) / (disp + 1e-6)
+                        depth_est[~np.isfinite(depth_est)] = 0.0
+                        range_mask = (depth_est > depth_thr_min) & (depth_est < depth_thr_max)
+                    else:
+                        # disparity가 너무 작은(=너무 먼) 픽셀 자르기 
+                        range_mask = np.isfinite(disp) & (disp > 1.0)
+
+                    # final mask = valid disparity & (세그멘트 있으면 적용) & 범위
+                    valid_disp = np.isfinite(disp) & (disp > 0)
+                    if seg_mask is not None:
+                        final_mask = valid_disp & seg_mask & range_mask
+                    else:
+                        final_mask = valid_disp & range_mask
+
+
+                    # -------------------- 포인트클라우드용 깊이 생성 --------------------
+                    # final_mask가 False인 곳은 깊이 0으로 (Rerun은 0을 invalid로 취급)
+                    masked_depth = depth_est.copy()
+                    masked_depth[~final_mask] = 0.0
+
+                    # (중요) Pinhole 해상도(w,h)와 일치하도록 크기 맞추기
+                    if masked_depth.shape != (h, w):
+                        masked_depth = cv2.resize(masked_depth, (w, h), interpolation=cv2.INTER_NEAREST)
+
+                    # (선택) 안정성: 음수/너무 큰 값 클램프
+                    masked_depth = np.clip(masked_depth, 0.0, 1000.0).astype(np.float32)
+
+                    # Rerun에 컬러 disparity 로깅
+                    rr.log("world/camera/image/depth_processed", rr.DepthImage(masked_depth, meter=1.0))
                 
-                # Apply min/max depth range mask
-                depth_range_mask = (depth > depth_thr_min) & (depth < depth_thr_max)
-                depth_mask &= depth_range_mask
+                    # rr.log("world/camera/image/depth_processed", rr.DepthImage(depth_est, meter=1.0))
+                if r_cnt % 30 == 0:
+                    print(f"[R] frames={r_cnt}, pairs={pair_cnt}, poolL={len(left_pool)}")
 
-                # Apply the final combined mask to the depth image
-                processed_depth = depth.copy()
-                processed_depth[~depth_mask] = 0  # Set invalid/filtered points to 0
-
-                # Log the processed depth image, which will be used for pinhole projection.
-                rr.log("world/camera/image/depth_processed", rr.DepthImage(processed_depth, meter=1.0))
-            
+        
             # visualization odometry data
             elif conn.topic == odometry_topic:
                 # velocity time series
@@ -204,70 +283,3 @@ def run(bag_path: Path, config: dict):
                 traj.append(t_adj)
                 if len(traj) >= 2:
                     rr.log("world", rr.LineStrips3D([traj], colors=[0, 255, 255], radii = traj_radius))                            
-
-            
-            # ───────── Right ─────────
-            elif conn.topic == image_R_topic:
-                r_cnt += 1
-                t_ns = ros_time_ns(msg)
-                img_R = msg_to_rgb_numpy(msg)
-                t_R = disparity_estimator.preprocess(img_R)
-
-                matched_left = None
-
-                # 1) exact match
-                if t_ns in left_pool:
-                    matched_left = left_pool.pop(t_ns)
-                else:
-                    # 2) ±50ms 근접 매칭
-                    tol = 50_000_000  # 50ms
-                    if left_pool:
-                        nearest = min(left_pool.keys(), key=lambda k: abs(k - t_ns))
-                        if abs(nearest - t_ns) <= tol:
-                            matched_left = left_pool.pop(nearest)
-                        else:
-                            #print(f"[pair] skip: no exact L; nearest Δ={abs(nearest - t_ns)/1e6:.1f}ms > 50ms")
-                            pass
-                    else:
-                        #print("[pair] skip: left_pool empty")
-                        pass
-
-                if matched_left is not None:
-                    pair_cnt += 1
-                    disp = disparity_estimator.estimate_disparity(matched_left, t_R)
-                    dmin, dmax = np.nanmin(disp), np.nanmax(disp)
-                    valid = np.isfinite(disp).sum()
-                    #print(f"[PAIR {pair_cnt}] t={t_ns} shape={disp.shape} min={dmin:.3f} max={dmax:.3f} valid={valid}")
-
-
-
-                    # ── 3a) 보이는 정규화 시각화
-                    valid = np.isfinite(disp)
-                    if np.any(valid):
-                        # 극단값 영향 줄이기 위해 퍼센타일로 범위 설정 (2~98%)
-                        dmin_v = np.percentile(disp[valid], 2)
-                        dmax_v = np.percentile(disp[valid], 98)
-                        if dmax_v <= dmin_v:  # 안전장치
-                            dmin_v, dmax_v = float(np.min(disp[valid])), float(np.max(disp[valid]))
-                    else:
-                        dmin_v, dmax_v = 0.0, 1.0  # 전부 invalid인 경우
-
-                    # 0~1 정규화 (invalid는 0으로)
-                    norm = (np.clip(disp, dmin_v, dmax_v) - dmin_v) / (dmax_v - dmin_v + 1e-6)
-                    norm[~valid] = 0.0
-
-                    # 8bit로 변환 → 컬러맵 적용(BGR) → RGB 변환
-                    norm8 = (norm * 255).astype(np.uint8)
-                    color_bgr = cv2.applyColorMap(norm8, cv2.COLORMAP_TURBO)  # cv2.COLORMAP_JET도 가능
-                    color_rgb = cv2.cvtColor(color_bgr, cv2.COLOR_BGR2RGB)
-
-                    # Rerun에 컬러 disparity 로깅
-                    rr.log("image/disparity_vis", rr.Image(color_rgb))
-                    rr.log(
-                        "image/disparity_stats",
-                        rr.TextLog(f"min={dmin:.3f}, max={dmax:.3f}, valid={valid.sum()}")
-                    )
-                
-                if r_cnt % 30 == 0:
-                    print(f"[R] frames={r_cnt}, pairs={pair_cnt}, poolL={len(left_pool)}")
-                

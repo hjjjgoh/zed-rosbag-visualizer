@@ -19,3 +19,7 @@ output/
 
 # Jupyter checkpoints
 .ipynb_checkpoints/
+
+
+# Data
+rosbag2_3/

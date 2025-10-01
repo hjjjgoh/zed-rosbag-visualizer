@@ -17,7 +17,7 @@ visualization:
   use_segmentation: true
   image_plane_distance: 0.2 # 카메라 프러스텀 크기 조정 가능
   traj_radius: 0.001
-  baseline_m: 0.001
+  baseline_m: 0.12
 
   # intrinsic parameters 추가 필요
 

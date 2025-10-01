@@ -1,12 +1,16 @@
 import sys
 from pathlib import Path
 
-project_root = Path(__file__).resolve().parent.parent
-# 파이썬 모듈 검색 경로 리스트의 맨 앞에 프로젝트 루트 폴더를 추가
+
+project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
+dinov2_path = project_root / "src" / "foundation_stereo" / "dinov2"
+sys.path.insert(0, str(dinov2_path))
+
+
 import argparse
-import yaml  # PyYAML 라이브러리 직접 임포트
+import yaml
 from src.player import run
 
 def main():

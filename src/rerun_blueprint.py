@@ -34,19 +34,14 @@ def setup_rerun_blueprint():
             ),
             rrb.Tabs(
                 rrb.Spatial2DView(
-                    name="Depth",
+                    name="FoundationSteroe_Disparity",
                     origin="image",
-                    contents="image/depth",
+                    contents="image/disparity_vis",
                 ),
                 rrb.Spatial2DView(
                     name="Depth Processed",
                     origin="world/camera/image",
                     contents="world/camera/image/depth_processed",
-                ),
-                rrb.Spatial2DView(
-                    name="FoundationSteroe_Disparity",
-                    origin="image",
-                    contents="image/disparity_vis",
                 ),
             ),
             name="2D Views",
