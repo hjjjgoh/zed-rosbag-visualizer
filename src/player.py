@@ -249,22 +249,21 @@ def run(bag_path: Path, config: dict):
                         final_mask = valid_disp & range_mask
 
 
-                    # -------------------- 포인트클라우드용 깊이 생성 --------------------
-                    # final_mask가 False인 곳은 깊이 0으로 (Rerun은 0을 invalid로 취급)
+                    # point cloud depth 
+                    # final_mask가 False인 곳은 깊이 0으로
                     masked_depth = depth_est.copy()
                     masked_depth[~final_mask] = 0.0
 
-                    # (중요) Pinhole 해상도(w,h)와 일치하도록 크기 맞추기
+                    # Pinhole resolution(w,h) resize
                     if masked_depth.shape != (h, w):
                         masked_depth = cv2.resize(masked_depth, (w, h), interpolation=cv2.INTER_NEAREST)
 
-                    # (선택) 안정성: 음수/너무 큰 값 클램프
+                    # stability: negative/too large value clamp
                     masked_depth = np.clip(masked_depth, 0.0, 1000.0).astype(np.float32)
 
-                    # Rerun에 컬러 disparity 로깅
+                    # masked depth logging
                     rr.log("world/camera/image/depth_processed", rr.DepthImage(masked_depth, meter=1.0))
                 
-                    # rr.log("world/camera/image/depth_processed", rr.DepthImage(depth_est, meter=1.0))
                 if r_cnt % 30 == 0:
                     print(f"[R] frames={r_cnt}, pairs={pair_cnt}, poolL={len(left_pool)}")
 
