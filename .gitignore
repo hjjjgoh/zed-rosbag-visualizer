@@ -1,25 +1,25 @@
-# Python-generated files
-__pycache__/
-*.py[oc]
-build/
-dist/
-wheels/
-*.egg-info
-
-# Virtual environments
+# Environments
 .venv
+venv
+.env
 
-# Model weights (too large for git)
-models/*.pth
-models/*.pt
-models/*.ckpt
+# Cache and logs
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.log
 
-# Output files
+# Build artifacts
+dist/
+build/
+*.egg-info/
+
+# Data, Models, and Outputs
+# These directories contain large files and should not be version controlled.
+data/
 output/
+models/
+data/analyze/
 
-# Jupyter checkpoints
+# Jupyter Notebook checkpoints
 .ipynb_checkpoints/
-
-
-# Data
-rosbag2_3/
