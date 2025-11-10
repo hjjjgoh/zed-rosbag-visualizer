@@ -11,6 +11,8 @@ import time
 from pathlib import Path
 from tqdm import tqdm
 from typing import Tuple, Dict, Any, Optional
+import logging
+from datetime import datetime
 
 # ROS Bag I/O
 from rosbags.rosbag2 import Reader
@@ -46,8 +48,25 @@ class PreprocessPipeline:
         self.out_dir = Path(args.output_dir)
         self.out_dir.mkdir(parents=True, exist_ok=True)
         
-        # 로거 초기화
-        self.logger, self.log_file = setup_logger(self.out_dir)
+        # 2. 로거 설정 (로그 파일을 output 디렉토리 내에 저장)
+        log_dir = self.out_dir / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        
+        log_file_name = f"{self.out_dir.name}_{datetime.now().strftime('%y%m%d')}.log"
+        log_file_path = log_dir / log_file_name
+        
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s [%(levelname)s] %(message)s",
+            handlers=[
+                logging.FileHandler(log_file_path),
+                logging.StreamHandler(sys.stdout),
+            ],
+        )
+        self.logger = logging.getLogger(__name__)
+        self.logger.info(f"Log file will be saved to: {log_file_path}")
+        self.logger.info("=" * 50)
+        self.logger.info("Pre-processing pipeline started.")
         
         # 통계 변수
         self.total_left = 0
