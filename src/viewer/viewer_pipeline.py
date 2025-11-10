@@ -8,9 +8,9 @@ from pathlib import Path
 from argparse import Namespace
 from src.preprocess.calibration import process_odometry
 from src.preprocess.utils.depthmap_color import colorize_depth
-from src.viewer.rerun_blueprint_edit import setup_rerun_blueprint, log_description
+from src.viewer.rerun_blueprint import setup_rerun_blueprint, log_description
 from src.viewer.point_cloud import rotate_pointcloud
-from src.model.segmenter import segmenter
+from src.model.BiRefNet_segmenter import segmenter
 
 
 class ViewerPipeline:
@@ -69,14 +69,18 @@ class ViewerPipeline:
 
     def _init_video_captures(self):
         rgb_video_path = self.input_dir / "rgb.mp4"
-        depth_video_candidates = [
-            self.input_dir / "depth_foundation.mp4",
-            self.input_dir / "depth_zed.mp4",
-        ]
-        self.depth_video_path = next((p for p in depth_video_candidates if p.exists()), None)
-        
+        foundation_path = self.input_dir / "depth_foundation.mp4"
+        zed_path = self.input_dir / "depth_zed.mp4"
+
         self.cap_rgb = cv2.VideoCapture(str(rgb_video_path)) if rgb_video_path.exists() else None
-        self.cap_dep = cv2.VideoCapture(str(self.depth_video_path)) if self.depth_video_path else None
+        
+        self.cap_dep_foundation = cv2.VideoCapture(str(foundation_path)) if foundation_path.exists() else None
+        if self.cap_dep_foundation:
+            print("Found Foundation Stereo depth video.")
+
+        self.cap_dep_zed = cv2.VideoCapture(str(zed_path)) if zed_path.exists() else None
+        if self.cap_dep_zed:
+            print("Found ZED depth video.")
 
     def _log_static_elements(self):
         setup_rerun_blueprint()
@@ -132,9 +136,11 @@ class ViewerPipeline:
         idx = 0
         
         while True:
-            rgb_np, dep_u8, ok_rgb, ok_dep = self._read_frames()
+            (rgb_np, ok_rgb, 
+             dep_foundation_u8, ok_dep_foundation, 
+             dep_zed_u8, ok_dep_zed) = self._read_frames()
 
-            if not ok_rgb and not ok_dep:
+            if not ok_rgb and not ok_dep_foundation and not ok_dep_zed:
                 break
 
             rr.set_time_seconds("t", idx / self.fps)
@@ -143,8 +149,8 @@ class ViewerPipeline:
             self._log_pointcloud_topic(idx)
             self._log_rgb(rgb_np)
             
-            # 마스크 생성을 위해 rgb_np를 _log_depth에 전달
-            self._log_depth(dep_u8, ok_dep, rgb_np)
+            self._process_and_log_depth(dep_foundation_u8, ok_dep_foundation, rgb_np, "foundation")
+            self._process_and_log_depth(dep_zed_u8, ok_dep_zed, rgb_np, "zed")
 
             idx += 1
 
@@ -152,18 +158,21 @@ class ViewerPipeline:
         print("[done]")
 
     def _read_frames(self):
-        ok_rgb, ok_dep = False, False
-        rgb_np, dep_u8 = None, None
-
+        ok_rgb, rgb_np = False, None
         if self.cap_rgb and self.cap_rgb.isOpened():
             ok_rgb, bgr = self.cap_rgb.read()
             if ok_rgb:
                 rgb_np = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
         
-        if self.cap_dep and self.cap_dep.isOpened():
-            ok_dep, dep_u8 = self.cap_dep.read()
+        ok_dep_foundation, dep_foundation_u8 = False, None
+        if self.cap_dep_foundation and self.cap_dep_foundation.isOpened():
+            ok_dep_foundation, dep_foundation_u8 = self.cap_dep_foundation.read()
+
+        ok_dep_zed, dep_zed_u8 = False, None
+        if self.cap_dep_zed and self.cap_dep_zed.isOpened():
+            ok_dep_zed, dep_zed_u8 = self.cap_dep_zed.read()
             
-        return rgb_np, dep_u8, ok_rgb, ok_dep
+        return rgb_np, ok_rgb, dep_foundation_u8, ok_dep_foundation, dep_zed_u8, ok_dep_zed
 
     def _log_trajectory(self, idx, origin_T_inv, traj):
         if self.trajectory and idx < len(self.trajectory):
@@ -227,7 +236,7 @@ class ViewerPipeline:
         
         return range_mask
 
-    def _log_depth(self, dep_u8, ok_dep, rgb_np):
+    def _process_and_log_depth(self, dep_u8, ok_dep, rgb_np, source_name):
         if ok_dep and dep_u8 is not None:
             if dep_u8.ndim == 3:
                 dep_u8 = dep_u8[..., 0]
@@ -240,13 +249,17 @@ class ViewerPipeline:
             masked_depth = depth_m.copy()
             masked_depth[~final_mask] = 0.0
 
-            rr.log("world/camera/image/depth_foundation", rr.DepthImage(masked_depth, meter=1.0))
+            # depth source에 따라 동적으로 Rerun 경로 설정
+            entity_path = f"world/camera/image/depth_{source_name}"
+            rr.log(entity_path, rr.DepthImage(masked_depth, meter=1.0))
             
             color_rgb = colorize_depth(depth_m, auto_percentile=(2.0, 98.0))
-            rr.log("image/depth", rr.Image(color_rgb))
+            rr.log(f"image/depthmap_{source_name}", rr.Image(color_rgb))
 
     def _release_captures(self):
         if self.cap_rgb:
             self.cap_rgb.release()
-        if self.cap_dep:
-            self.cap_dep.release()
+        if self.cap_dep_foundation:
+            self.cap_dep_foundation.release()
+        if self.cap_dep_zed:
+            self.cap_dep_zed.release()
