@@ -48,8 +48,8 @@ class PreprocessPipeline:
         self.out_dir = Path(args.output_dir)
         self.out_dir.mkdir(parents=True, exist_ok=True)
         
-        # 2. 로거 설정 (로그 파일을 output 디렉토리 내에 저장)
-        log_dir = self.out_dir / "logs"
+        # 2. 로거 설정 (로그 파일을 'logs/preprocess' 디렉토리에 저장)
+        log_dir = Path("logs/preprocess")
         log_dir.mkdir(parents=True, exist_ok=True)
         
         log_file_name = f"{self.out_dir.name}_{datetime.now().strftime('%y%m%d')}.log"
