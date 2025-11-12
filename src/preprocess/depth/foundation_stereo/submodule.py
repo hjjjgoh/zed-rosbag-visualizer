@@ -46,7 +46,6 @@ class LayerNorm2d(nn.LayerNorm):
 
 
 class BasicConv(nn.Module):
-
     def __init__(self, in_channels, out_channels, deconv=False, is_3d=False, bn=True, relu=True, norm='batch', **kwargs):
         super(BasicConv, self).__init__()
 
@@ -79,7 +78,8 @@ class BasicConv(nn.Module):
         if self.use_bn:
             x = self.bn(x)
         if self.relu:
-            x = nn.LeakyReLU()(x)#, inplace=True)
+            # x = nn.LeakyReLU()(x)   # ❌ TorchScript가 동적 모듈 생성이라 막힘
+            x = F.leaky_relu(x)       
         return x
 
 
@@ -339,7 +339,7 @@ class BasicConv_IN(nn.Module):
         if self.use_in:
             x = self.IN(x)
         if self.relu:
-            x = nn.LeakyReLU()(x)#, inplace=True)
+            x = F.leaky_relu(x)  # ✅ TorchScript-friendly
         return x
 
 
@@ -467,36 +467,36 @@ def context_upsample(disp_low, up_weights):
 
 
 class PositionalEmbedding(nn.Module):
-  def __init__(self, d_model, max_len=512):
-    super().__init__()
+    def __init__(self, d_model, max_len=512):
+        super().__init__()
 
-    # Compute the positional encodings once in log space.
-    pe = torch.zeros(max_len, d_model).float()
-    pe.require_grad = False
+        # 사인/코사인 위치 인코딩 계산
+        pe = torch.zeros(max_len, d_model).float()
+        position = torch.arange(0, max_len).float().unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-torch.log(torch.tensor(10000.0)) / d_model))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        pe = pe.unsqueeze(0)  # (1, max_len, D)
 
-    position = torch.arange(0, max_len).float().unsqueeze(1)  #(N,1)
-    div_term = (torch.arange(0, d_model, 2).float() * -(np.log(10000.0) / d_model)).exp()[None]
+        # 버퍼로 등록 (Tensor 속성 재할당 방지)
+        self.register_buffer("pe", pe, persistent=False)
 
-    pe[:, 0::2] = torch.sin(position * div_term)  #(N, d_model/2)
-    pe[:, 1::2] = torch.cos(position * div_term)
-
-    pe = pe.unsqueeze(0)
-    self.pe = pe
-    # self.register_buffer('pe', pe)  #(1, max_len, D)
-
-
-  def forward(self, x, resize_embed=False):
-    '''
-    @x: (B,N,D)
-    '''
-    self.pe = self.pe.to(x.device).to(x.dtype)
-    pe = self.pe
-    if pe.shape[1]<x.shape[1]:
-      if resize_embed:
-        pe = F.interpolate(pe.permute(0,2,1), size=x.shape[1], mode='linear', align_corners=False).permute(0,2,1)
-      else:
-        raise RuntimeError(f'x:{x.shape}, pe:{pe.shape}')
-    return x + pe[:, :x.size(1)]
+    def forward(self, x, resize_embed=False):
+        """
+        x: (B, N, D)
+        """
+        pe = self.pe.to(device=x.device, dtype=x.dtype)
+        if pe.shape[1] < x.shape[1]:
+            if resize_embed:
+                pe = F.interpolate(
+                    pe.permute(0, 2, 1),
+                    size=x.shape[1],
+                    mode="linear",
+                    align_corners=False
+                ).permute(0, 2, 1)
+            else:
+                raise RuntimeError(f"x:{x.shape}, pe:{pe.shape}")
+        return x + pe[:, :x.size(1)]
 
 
 
@@ -563,26 +563,28 @@ class EdgeNextConvEncoder(nn.Module):
     def __init__(self, dim, layer_scale_init_value=1e-6, expan_ratio=4, kernel_size=7, norm='layer'):
         super().__init__()
         self.dwconv = nn.Conv2d(dim, dim, kernel_size=kernel_size, padding=kernel_size // 2, groups=dim)
-        if norm=='layer':
-          self.norm = LayerNorm2d(dim, eps=1e-6)
+        if norm == 'layer':
+            self.norm = LayerNorm2d(dim, eps=1e-6)
         else:
-          self.norm = nn.Identity()
+            self.norm = nn.Identity()
         self.pwconv1 = nn.Linear(dim, expan_ratio * dim)
         self.act = nn.GELU()
         self.pwconv2 = nn.Linear(expan_ratio * dim, dim)
-        self.gamma = nn.Parameter(layer_scale_init_value * torch.ones(dim), requires_grad=True) if layer_scale_init_value > 0 else None
+
+        # ✅ TorchScript 호환 버전
+        gamma = torch.ones(dim) * layer_scale_init_value
+        self.register_buffer("gamma_buf", gamma)  # 버퍼로 등록
+        self.gamma_enable = layer_scale_init_value > 0  # bool로 제어
 
     def forward(self, x):
-        input = x
+        identity = x
         x = self.dwconv(x)
         x = self.norm(x)
-        x = x.permute(0, 2, 3, 1)  # (N, C, H, W) -> (N, H, W, C)
+        x = x.permute(0, 2, 3, 1)
         x = self.pwconv1(x)
         x = self.act(x)
         x = self.pwconv2(x)
-        if self.gamma is not None:
-            x = self.gamma * x
-        x = x.permute(0, 3, 1, 2)  # (N, H, W, C) -> (N, C, H, W)
-
-        x = input + x
-        return x
+        if self.gamma_enable:
+            x = self.gamma_buf.view(1, 1, 1, -1) * x
+        x = x.permute(0, 3, 1, 2)
+        return identity + x

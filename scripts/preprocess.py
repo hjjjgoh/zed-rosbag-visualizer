@@ -30,7 +30,7 @@ PreprocessPipeline 클래스를 사용하여 전처리 수행
     --log-pointcloud-topic    : ZED PointCloud 토픽을 추출하여 pointcloud.json으로 저장
 
 [포인트 클라우드 시각화 옵션]
-    이 스크립트는 Rerun 뷰어에서 3가지 방식의 포인트 클라우드를 시각화하기 위한 데이터를 생성합니다.
+    이 스크립트는 Rerun 뷰어에서 3가지 방식의 포인트 클라우드를 시각화하기 위한 데이터를 생성
     1. ZED PointCloud Topic
        - 전처리: --log-pointcloud-topic 옵션
        - 생성 파일: pointcloud.json (3D 좌표 + RGB 색상)
@@ -45,6 +45,7 @@ PreprocessPipeline 클래스를 사용하여 전처리 수행
        - 전처리: --depth-source foundation 또는 both 옵션 
        - 생성 파일: depth_foundation.mp4 (그레이스케일 깊이 영상)
        - 뷰어 동작: Rerun이 rr.DepthImage를 기반으로 포인트 클라우드 자동 생성
+    
 
 [출력 파일]
     - rgb.mp4                      : RGB 비디오 (H.264 코덱)
@@ -110,7 +111,6 @@ def parse_arguments():
 
 
 def main():
-    """메인 함수"""
     # 인자 파싱
     args = parse_arguments()
     

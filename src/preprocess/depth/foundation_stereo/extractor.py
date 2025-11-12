@@ -13,6 +13,7 @@ import torch.nn.functional as F
 from .submodule import *
 from .utils.utils import *
 import timm
+from typing import List, Tuple
 
 def freeze_model(model):
     for param in model.parameters():
@@ -185,7 +186,12 @@ class MultiBasicEncoder(nn.Module):
         self.in_planes = dim
         return nn.Sequential(*layers)
 
-    def forward(self, x, dual_inp=False, num_layers=3):
+    def forward(
+    self,
+    x: torch.Tensor,
+    dual_inp: bool = False,
+    num_layers: int = 3
+    ) -> Tuple[List[torch.Tensor], ...]:
 
         x = self.conv1(x)
         x = self.norm1(x)
@@ -284,8 +290,15 @@ class ContextNetDino(MultiBasicEncoder):
 
         self.outputs16 = nn.ModuleList(output_list)
 
-    def forward(self, x_in, vit_feat, dual_inp=False, num_layers=3):
-        B,C,H,W = x_in.shape
+    # ContextNetDino.forward 내부
+    def forward(
+    self,
+    x_in: torch.Tensor,
+    vit_feat: torch.Tensor,
+    dual_inp: bool = False,
+    num_layers: int = 3
+    ) -> Tuple[List[torch.Tensor], List[torch.Tensor], List[torch.Tensor]]:
+        B, C, H, W = x_in.shape
         x = self.conv1(x_in)
         x = self.norm1(x)
         x = self.relu1(x)
@@ -293,8 +306,16 @@ class ContextNetDino(MultiBasicEncoder):
         x = self.layer2(x)
         x = self.layer3(x)
 
-        divider = np.lcm(self.patch_size, 16)
-        H_resize, W_resize = get_resize_keep_aspect_ratio(H,W, divider=divider, max_H=1344, max_W=1344)
+        # ✅ numpy 제거
+        divider = torch.lcm(
+            torch.tensor(self.patch_size, dtype=torch.int64, device=x.device),
+            torch.tensor(16, dtype=torch.int64, device=x.device)
+        ).item()
+
+        H_resize, W_resize = get_resize_keep_aspect_ratio(
+            H, W, divider=divider, max_H=1344, max_W=1344
+        )
+
         x = torch.cat([x, vit_feat], dim=1)
         x = self.conv2(x)
         outputs04 = [f(x) for f in self.outputs04]
@@ -306,6 +327,7 @@ class ContextNetDino(MultiBasicEncoder):
         outputs16 = [f(z) for f in self.outputs16]
 
         return (outputs04, outputs08, outputs16)
+
 
 
 class DepthAnythingFeature(nn.Module):
@@ -370,16 +392,25 @@ class Feature(nn.Module):
         self.patch_size = 14
         self.d_out = [chans[0]*2+vit_feat_dim, chans[1]*2, chans[2]*2, chans[3]]
 
+    # Feature.forward 내부
     def forward(self, x):
-        B,C,H,W = x.shape
-        divider = np.lcm(self.patch_size, 16)
-        H_resize, W_resize = get_resize_keep_aspect_ratio(H,W, divider=divider, max_H=1344, max_W=1344)
+        B, C, H, W = x.shape
+        # ✅ numpy 제거
+        divider = torch.lcm(
+            torch.tensor(self.patch_size, dtype=torch.int64, device=x.device),
+            torch.tensor(16, dtype=torch.int64, device=x.device)
+        ).item()
+
+        H_resize, W_resize = get_resize_keep_aspect_ratio(
+            H, W, divider=divider, max_H=1344, max_W=1344
+        )
+
         x_in_ = F.interpolate(x, size=(H_resize, W_resize), mode='bicubic', align_corners=False)
         self.dino = self.dino.eval()
         with torch.no_grad():
-          output = self.dino(x_in_)
+            output = self.dino(x_in_)
         vit_feat = output['out']
-        vit_feat = F.interpolate(vit_feat, size=(H//4,W//4), mode='bilinear', align_corners=True)
+        vit_feat = F.interpolate(vit_feat, size=(H//4, W//4), mode='bilinear', align_corners=True)
         x = self.stem(x)
         x4 = self.stages[0](x)
         x8 = self.stages[1](x4)
@@ -392,5 +423,6 @@ class Feature(nn.Module):
         x4 = torch.cat([x4, vit_feat], dim=1)
         x4 = self.conv4(x4)
         return [x4, x8, x16, x32], vit_feat
+
 
 

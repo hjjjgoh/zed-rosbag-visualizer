@@ -37,13 +37,15 @@ except:
         def __exit__(self, *args):
             pass
 
-
 def normalize_image(img):
     '''
     @img: (B,C,H,W) in range 0-255, RGB order
     '''
-    tf = torchvision.transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225], inplace=False)
-    return tf(img/255.0).contiguous()
+    # img: (B,C,H,W) uint8/float, RGB
+    img = img.float() / 255.0
+    mean = torch.tensor([0.485, 0.456, 0.406], device=img.device).view(1,3,1,1)
+    std  = torch.tensor([0.229, 0.224, 0.225], device=img.device).view(1,3,1,1)
+    return (img - mean) / std
 
 
 class hourglass(nn.Module):
@@ -181,7 +183,7 @@ class FoundationStereo(nn.Module, huggingface_hub.PyTorchModelHubMixin):
 
         r = self.args.corr_radius
         dx = torch.linspace(-r, r, 2*r+1, requires_grad=False).reshape(1, 1, 2*r+1, 1)
-        self.dx = dx
+        self.register_buffer("dx", dx, persistent=False)
 
 
     def upsample_disp(self, disp, mask_feat_4, stem_2x):
@@ -198,7 +200,8 @@ class FoundationStereo(nn.Module, huggingface_hub.PyTorchModelHubMixin):
     def forward(self, image1, image2, iters=12, flow_init=None, test_mode=False, low_memory=False, init_disp=None):
         """ Estimate disparity between pair of frames """
         B = len(image1)
-        low_memory = low_memory or (self.args.get('low_memory', False))
+        if hasattr(self.args, 'low_memory') and isinstance(self.args.low_memory, bool):
+            low_memory = low_memory or self.args.low_memory 
         image1 = normalize_image(image1)
         image2 = normalize_image(image2)
         with autocast(enabled=self.args.mixed_precision):

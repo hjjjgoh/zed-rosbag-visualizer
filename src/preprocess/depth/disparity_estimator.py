@@ -1,18 +1,21 @@
 import os
 import cv2
 import numpy as np
+import pickle
+import logging
+import platform
 import torch
 import torch.nn.functional as F
+import torch.serialization
 import torchvision.transforms as transforms
+import torchvision.transforms as transforms
+from .foundation_stereo.foundation_stereo import FoundationStereo
+
 from argparse import Namespace
 from typing import Tuple
 from numpy.core.multiarray import scalar as _np_scalar
-import numpy
-import torch.serialization
 from torch.serialization import add_safe_globals
 from pathlib import Path
-import pickle
-import logging
 
 
 # Hard coding -> 수정 필요
@@ -60,9 +63,6 @@ class AttrDict(dict):
     def get(self, k, d=None):
         return super().get(k, d)
 
-import torchvision.transforms as transforms
-from .foundation_stereo.foundation_stereo import FoundationStereo
-
 # numpy 객체를 torch.load의 안전한 globals에 추가
 torch.serialization.add_safe_globals([np.core.multiarray.scalar])
 
@@ -104,17 +104,18 @@ class DisparityEstimator:
             corr_implementation='reg',
             low_memory=False,
         )
-
+        
+        """
         # 1) 모델 생성
         self.model = FoundationStereo(args=model_args)
-
-        # 2) ----가중치 로드(기존 load 코드 전부 대체) ----
+        
+        # 2) --- 가중치 로드 ----
         self.logger.debug(f"Attempting to load checkpoint from: {weights_path}")
         try:
             # First try safe method
             # Allow numpy scalars for safe loading
-            if hasattr(numpy.core.multiarray, 'scalar'):
-                add_safe_globals([numpy.core.multiarray.scalar])
+            if hasattr(np.core.multiarray, 'scalar'):
+                add_safe_globals([np.core.multiarray.scalar])
 
             ckpt = torch.load(weights_path, map_location="cpu", weights_only=True)
             self.logger.debug("Checkpoint loaded successfully with weights_only=True")
@@ -143,11 +144,14 @@ class DisparityEstimator:
             self.logger.warning(f"strict=True loading failed: {e}. Attempting strict=False.")
             res = self.model.load_state_dict(state_dict, strict=False)
             self.logger.warning(f"strict=False loading results - Missing keys: {res.missing_keys}, Unexpected keys: {res.unexpected_keys}")
-        # 2) ---- "가중치 로드 블록" 끝 ----
-
+        
+        
+        # 3) --- 디바이스 이동 및 eval 모드 ---
         self.model.to(self.device).eval()
-        self.logger.info("Stereo depth model initialized and loaded successfully.")
+        """
+        self.model = torch.jit.load(weights_path, map_location=self.device).eval().to(self.device)
 
+        # 4) --- 전처리 정의 ---
         self.preprocessor = transforms.Compose([
             transforms.ToTensor(),                 # uint8 HWC -> float CHW, [0,1]
             transforms.Normalize(IMAGENET_MEAN, IMAGENET_STD),
@@ -164,7 +168,6 @@ class DisparityEstimator:
         t = self.preprocessor(image_np.copy()).unsqueeze(0).contiguous()
         return t.to(self.device, non_blocking=True)
 
-    
 
     @torch.no_grad()
     def estimate_disparity(self, left_tensor: torch.Tensor, right_tensor: torch.Tensor, iters: int = 16,) -> np.ndarray:
@@ -203,8 +206,9 @@ class DisparityEstimator:
         
         #print(f"[disp] After padding to 32: L={L.shape}, R={R.shape}, ph={ph}, pw={pw}")
 
-        with torch.inference_mode(), torch.cuda.amp.autocast():
-            out = self.model(L, R, iters=iters)
+        with torch.inference_mode(), torch.cuda.amp.autocast(): 
+            out = self.model(L, R)
+
 
         # 결과 안전 추출 (list/tuple/dict/tensor 모두 대응)
         # 재귀적으로 리스트/튜플을 풀기
@@ -261,6 +265,7 @@ class DepthFoundationStereo:
             low_memory=False,
         )
 
+        """
         # 1) 모델 생성
         self.model = FoundationStereo(args=model_args)
 
@@ -311,6 +316,8 @@ class DepthFoundationStereo:
         # 2) ---- "가중치 로드 블록" 끝 ----
 
         self.model.to(self.device).eval()
+        """     
+        self.model = torch.jit.load(weights_path, map_location=self.device).eval().to(self.device)
 
         self.preprocessor = transforms.Compose([
             transforms.ToTensor(),                 # uint8 HWC -> float CHW, [0,1]
@@ -358,7 +365,7 @@ class DepthFoundationStereo:
         L, ph, pw = _pad_to_multiple(left_tensor, m=32)
         R, _,  _  = _pad_to_multiple(right_tensor, m=32)
         
-        out = self.model(L, R, iters=16)
+        out = self.model(L, R)
 
         # 결과 안전 추출 (list/tuple/dict/tensor 모두 대응)
         while isinstance(out, (list, tuple)):

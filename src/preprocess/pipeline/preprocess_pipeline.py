@@ -3,6 +3,7 @@ Preprocessing Pipeline Class
 """
 
 import sys
+import re
 import json
 import yaml
 import cv2
@@ -52,9 +53,16 @@ class PreprocessPipeline:
         log_dir = Path("logs/preprocess")
         log_dir.mkdir(parents=True, exist_ok=True)
         
-        log_file_name = f"{self.out_dir.name}_{datetime.now().strftime('%y%m%d')}.log"
+        out_dir_name = self.out_dir.name
+        if re.search(r"\d{6}", out_dir_name):
+            log_file_name = f"{out_dir_name}.log"
+        else:
+            log_file_name = f"{out_dir_name}_{datetime.now().strftime('%y%m%d')}.log"
         log_file_path = log_dir / log_file_name
-        
+                
+        root_logger = logging.getLogger()
+        root_logger.handlers.clear()  # 기존 핸들러 제거
+
         logging.basicConfig(
             level=logging.INFO,
             format="%(asctime)s [%(levelname)s] %(message)s",
@@ -101,8 +109,8 @@ class PreprocessPipeline:
         self.pointcloud_topic = cfg["ros_topics"]["point_cloud"]
         
         # Depth 파라미터
-        self.depth_thr_min = float(cfg["visualization"]["depth_thr_min"])
-        self.depth_thr_max = float(cfg["visualization"]["depth_thr_max"])
+        self.depth_thr_min = float(cfg["depth_source"]["depth_min"])
+        self.depth_thr_max = float(cfg["depth_source"]["depth_max"])
         self.baseline_m = float(cfg["visualization"]["baseline_m"])
         
         # 카메라 intrinsic parameter
@@ -149,7 +157,7 @@ class PreprocessPipeline:
         # Disparity Estimator (Foundation Stereo)
         self.disparity_estimator = None
         if self.args.depth_source in ["foundation", "both"]:
-            weights_path = "models/model_best_bp2.pth"
+            weights_path = "models/foundation_stereo_scripted.pt"
             self.logger.info(f"Loading stereo depth model from: {weights_path}")
             self.disparity_estimator = DisparityEstimator(weights_path=weights_path)
         
@@ -428,7 +436,8 @@ class PreprocessPipeline:
                 ncols=120,
                 mininterval=0.5,
                 position=0,
-                leave=True
+                leave=True,
+                disable=not sys.stderr.isatty()
             ):
                 if lts in self.right_frames:
                     _, lrgb = self.left_frames[lts]

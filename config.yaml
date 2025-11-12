@@ -9,9 +9,14 @@ ros_topics:
   point_cloud: "/zed/zed_node/point_cloud/cloud_registered"
   odometry: "/zed/zed_node/odom"
 
+
+depth_source:
+  depth_max : 2.5
+  depth_min : 0.4
+
 visualization:
   point_radius: 0.005
-  depth_thr_max: 2.5
+  depth_thr_max: 1.0
   depth_thr_min: 0.4
   use_segmentation: true
   image_plane_distance: 0.1 # 카메라 프러스텀 크기 조정 가능
