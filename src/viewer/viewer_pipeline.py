@@ -1,4 +1,5 @@
 import argparse
+import autorootcwd
 import json
 import cv2
 import numpy as np
@@ -32,7 +33,7 @@ class ViewerPipeline:
 
     def _load_config(self):
         try:
-            project_root = Path(__file__).resolve().parent.parent.parent
+            project_root = Path.cwd()
             config_path = project_root / "config.yaml"
             with open(config_path, "r", encoding="utf-8") as f:
                 cfg = yaml.safe_load(f)
