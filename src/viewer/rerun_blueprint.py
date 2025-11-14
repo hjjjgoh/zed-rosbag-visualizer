@@ -1,9 +1,35 @@
+# rerun_blueprint.py
+"""
+Rerun Blueprint Configuration Module
+
+Rerun 뷰어의 기본 레이아웃(blueprint)과 텍스트 설명 패널을 설정
+
+Rerun은 내부적으로 "데이터 경로(path)"를 기반으로 트리 구조를 관리
+- `origin`: 뷰어의 루트 노드 기준 경로 (e.g. "world", "world/camera/image")
+- `contents`: 실제로 표시할 데이터가 기록되는 세부 경로 (e.g. "world/camera/image/rgb")
+
+
+구성 요약:
+1) 3D View (좌측): 카메라 궤적 및 포인트 클라우드 시각화
+2) 2D Views (우측):
+   - RGB
+   - Segmented Depth (FoundationStereo / ZED)
+   - Depth Map (FoundationStereo / ZED)
+3) Description 패널: 마크다운 형식의 안내 텍스트
+
+주요 함수:
+- setup_rerun_blueprint(): Rerun 레이아웃 초기화 및 전송
+- log_description(): 뷰어 설명 텍스트를 Rerun에 로그
+"""
+
+
 import rerun as rr
 import rerun.blueprint as rrb
-import numpy as np
 
 
-# set rerun blueprint
+# -------------------------------------------------------------
+# Blueprint 설정 함수
+# -------------------------------------------------------------
 def setup_rerun_blueprint():
     blueprint = rrb.Horizontal(
         rrb.Vertical(
@@ -29,12 +55,12 @@ def setup_rerun_blueprint():
             ),
             rrb.Tabs(
                 rrb.Spatial2DView(
-                    name="Depth (Foundation)",
+                    name="Segmented Depth (Foundation)",
                     origin="world/camera/image",
                     contents="world/camera/image/depth_foundation",
                 ),
                 rrb.Spatial2DView(
-                    name="Depth (ZED)",
+                    name="Segmented Depth (ZED)",
                     origin="world/camera/image",
                     contents="world/camera/image/depth_zed",
                 ),
@@ -59,9 +85,10 @@ def setup_rerun_blueprint():
     rr.send_blueprint(blueprint)
     rr.log("world", rr.ViewCoordinates.RDF, static=True)
     # R: Right, D: Down, F: Forward / [meter]
-   
 
-# log description to rerun
+# -------------------------------------------------------------
+# Description 로그 함수
+# -------------------------------------------------------------
 def log_description():
     description = """
     ### ZED ROS Bag Visualizer

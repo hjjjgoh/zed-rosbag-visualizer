@@ -1,8 +1,8 @@
 # export_fs_scripted.py
 import torch
 from pathlib import Path
-from src.preprocess.depth.foundation_stereo.foundation_stereo import FoundationStereo
-from src.preprocess.depth.disparity_estimator import AttrDict
+from src.preprocess.sensor_module.foundation_stereo.foundation_stereo import FoundationStereo
+from src.preprocess.sensor_module.stereo_estimator import AttrDict
 
 WEIGHTS = "models/model_best_bp2.pth"
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
