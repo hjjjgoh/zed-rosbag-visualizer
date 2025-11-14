@@ -32,7 +32,7 @@ class ViewerPipeline:
 
     def _load_config(self):
         try:
-            project_root = Path(__file__).resolve().parent.parent.parent.parent
+            project_root = Path(__file__).resolve().parent.parent.parent
             config_path = project_root / "config.yaml"
             with open(config_path, "r", encoding="utf-8") as f:
                 cfg = yaml.safe_load(f)
@@ -56,7 +56,7 @@ class ViewerPipeline:
         # 뷰어 시점의 필터링 파라미터 (실시간 제어용)
         self.filter_dmin = self.vis_config.get("depth_thr_min", self.meta_dmin)
         self.filter_dmax = self.vis_config.get("depth_thr_max", self.meta_dmax)
-        print(f"Using depth filter range: [{self.filter_dmin:.2f}m, {self.filter_dmax:.2f}m] from config.yaml")
+        print(f"Using depth filter range: [{self.filter_dmin:.2f}m, {self.filter_dmax:.2f}m]")
         
         # 나머지 메타데이터 파싱
         self.fps = float(self.meta.get("fps", 15.0))
