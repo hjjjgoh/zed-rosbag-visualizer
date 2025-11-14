@@ -1,4 +1,4 @@
-# preprocess_edit.py
+# preprocess.py
 """
 ZED ROS2 Bag 전처리 스크립트 - 클래스 기반 구조
 
@@ -75,8 +75,8 @@ warnings.filterwarnings("ignore", message=".*xFormers is not available.*")
 warnings.filterwarnings("ignore", message=".*flash attention.*")
 warnings.filterwarnings("ignore", message=".*autocast.*deprecated.*")
 
-# PreprocessPipeline import
-from src.preprocess.pipeline.preprocess_pipeline import PreprocessPipeline
+# PreprocessPipeline import (direct path; pipeline package removed)
+from src.preprocess.preprocess_pipeline import PreprocessPipeline
 
 
 def parse_arguments():

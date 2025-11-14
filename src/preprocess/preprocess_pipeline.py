@@ -1,5 +1,20 @@
+# preprocess_pipeline.py
 """
-Preprocessing Pipeline Class
+PreprocessPipeline 모듈
+
+ROS Bag 데이터로부터 스테레오 영상 및 센서 데이터를 전처리해 
+RGB·Depth 비디오, 오도메트리 궤적(trajectory.json), 포인트클라우드(pointcloud.json),
+그리고 메타데이터(meta.json)를 생성하는 파이프라인 클래스
+
+주요 처리 단계:
+1) 설정 로드 및 로그 초기화
+2) ROS Bag 데이터 수집 (좌/우 이미지, Depth, Odometry, PointCloud)
+3) 오도메트리·포인트클라우드 동기화
+4) RGB·Depth 프레임 처리 및 비디오 저장
+5) 결과 메타데이터 저장 및 H.264 인코딩 변환
+
+주요 클래스:
+- PreprocessPipeline: 전체 전처리 프로세스를 관리하고 실행하는 메인 파이프라인 클래스
 """
 
 import sys
@@ -9,31 +24,38 @@ import yaml
 import cv2
 import numpy as np
 import time
+import logging
+
 from pathlib import Path
 from tqdm import tqdm
 from typing import Tuple, Dict, Any, Optional
-import logging
 from datetime import datetime
 
-# ROS Bag I/O
+# --- ROS Bag I/O ---
 from rosbags.rosbag2 import Reader
 from rosbags.typesys import Stores, get_typestore
 
-# 프로젝트 모듈
-from src.preprocess.depth import DisparityEstimator, msg_to_rgb_numpy
-from src.preprocess.calibration import get_camera_parameter
-from src.preprocess.pipeline import StereoProcessor
-from src.preprocess.utils import setup_logger, convert_videos_to_h264
+# --- 프로젝트 유틸 모듈 ---
+from src.preprocess.sensor_module import (
+    StereoProcessor,
+    DisparityEstimator,
+    msg_to_rgb_numpy,
+    get_camera_parameter,
+)
+from src.preprocess.sensor_module import StereoProcessor
+from src.preprocess.utils import convert_videos_to_h264
 
-# 기본 설정
-TOLERANCE_NS = 200_000_000  # 스테레오 매칭 허용치 (200ms)
-
-
+# -------------------------------------------------------------
+# 전처리 파이프라인
+# -------------------------------------------------------------
 class PreprocessPipeline:
     """
     ROS Bag 전처리 파이프라인
     
-    프레임 수집 → 오도메트리 동기화 → RGB/Depth 처리 → 비디오 변환
+    - 카메라 프레임 및 센서 데이터 수집
+    - 오도메트리 및 포인트클라우드 동기화
+    - RGB/Depth 비디오 생성 및 저장
+    - 결과 요약 및 인코딩 변환 수행
     """
     
     def __init__(self, args):
@@ -89,10 +111,8 @@ class PreprocessPipeline:
         self.pointcloud_data = {}
         self.final_trajectory = []
         
-        # 설정 로드
-        self._load_configuration()
-        
-        # Writers 및 Processor 초기화
+        # 설정 및 Processor 초기화
+        self._load_configuration()     
         self._initialize_processors()
     
     def _load_configuration(self):
@@ -112,6 +132,10 @@ class PreprocessPipeline:
         self.depth_thr_min = float(cfg["depth_source"]["depth_min"])
         self.depth_thr_max = float(cfg["depth_source"]["depth_max"])
         self.baseline_m = float(cfg["visualization"]["baseline_m"])
+
+        # 스테레오 매칭 허용치 (ns)
+        preprocess_cfg = cfg.get("preprocess", {})
+        self.tolerance_ns = int(preprocess_cfg.get("tolerance_ns", self.DEFAULT_TOLERANCE_NS))
         
         # 카메라 intrinsic parameter
         w_src, h_src, cx, cy, fx, fy = get_camera_parameter(
@@ -140,7 +164,7 @@ class PreprocessPipeline:
             "cx": float(self.cx),
             "cy": float(self.cy),
             "baseline_m": self.baseline_m,
-            "tolerance_ns": TOLERANCE_NS,
+            "tolerance_ns": self.tolerance_ns,
         }
         with open(self.out_dir / "meta.json", "w", encoding="utf-8") as f:
             json.dump(meta, f, ensure_ascii=False, indent=2)
@@ -154,7 +178,7 @@ class PreprocessPipeline:
                 self.out_dir, self.size, self.args.fps, self.args.depth_source
             )
         
-        # Disparity Estimator (Foundation Stereo)
+        # Disparity Estimator (FoundationStereo)
         self.disparity_estimator = None
         if self.args.depth_source in ["foundation", "both"]:
             weights_path = "models/foundation_stereo_scripted.pt"
@@ -173,6 +197,9 @@ class PreprocessPipeline:
             disparity_estimator=self.disparity_estimator
         )
     
+    # ---------------------------------------------------------
+    # 1) 프레임 및 센서 데이터 수집
+    # ---------------------------------------------------------
     def collect_frames(self):
         """ROS Bag에서 프레임 및 오도메트리 수집"""
         topics = [self.image_L_topic, self.odometry_topic]
@@ -254,6 +281,10 @@ class PreprocessPipeline:
         if self.args.log_pointcloud_topic:
             self.logger.info(f"Collected pointclouds - {len(self.pointcloud_data)}")
     
+    
+    # ---------------------------------------------------------
+    # 2-1) 오도메트리 동기화
+    # ---------------------------------------------------------
     def synchronize_odometry(self):
         """프레임-오도메트리 동기화 및 trajectory.json 저장"""
         if not self.odometry_data or not self.left_frames:
@@ -307,7 +338,10 @@ class PreprocessPipeline:
             self.logger.info(f"Saved synchronized trajectory to: {output_path}")
         except Exception as e:
             self.logger.error(f"Failed to save trajectory.json: {e}")
-
+    
+    # ---------------------------------------------------------
+    # 2-2) 포인트클라우드 동기화
+    # ---------------------------------------------------------
     def _unpack_pointcloud_msg(self, msg) -> tuple[np.ndarray, np.ndarray]:
         """PointCloud2 메시지를 xyz points와 rgb colors numpy 배열로 변환"""
         
@@ -398,6 +432,9 @@ class PreprocessPipeline:
         except Exception as e:
             self.logger.error(f"Failed to save pointcloud.json: {e}")
 
+    # ---------------------------------------------------------
+    # RGB 및 Depth 프레임 처리
+    # ---------------------------------------------------------
     def process_rgb_frames(self):
         """RGB 프레임 처리"""
         self.logger.info("Processing RGB frames...")
@@ -508,7 +545,7 @@ class PreprocessPipeline:
 
         summary_lines.extend([
             f"[stat] fps={self.args.fps}  # 영상 재생 속도",
-            f"[stat] tolerance_ns={TOLERANCE_NS}",
+            f"[stat] tolerance_ns={self.tolerance_ns}",
             f"[stat] collection time: {self.collection_time:.2f}s",
             f"[stat] processing time: {self.processing_time:.2f}s",
             f"[stat] total processing time: {total_time:.2f}s",

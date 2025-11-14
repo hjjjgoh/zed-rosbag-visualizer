@@ -28,15 +28,6 @@ def convert_videos_to_h264(
         preset: 인코딩 속도 (ultrafast, fast, medium, slow, veryslow, 기본값: medium)
         verbose: 진행 상황 출력 여부
     
-    Returns:
-        None
-    
-    Example:
-        >>> convert_videos_to_h264(Path("output/my_exp"))
-        [FFMPEG] Converting to H.264...
-        [converting] rgb.mp4 → H.264...
-        [ok] rgb.mp4 converted to H.264 (original mp4v replaced)
-    
     Note:
         - FFmpeg가 시스템 PATH에 설치되어 있어야 합니다
         - 변환 실패 시 원본 파일은 유지됩니다
@@ -114,12 +105,6 @@ def check_ffmpeg_installed() -> bool:
     
     Returns:
         bool: 설치 여부
-    
-    Example:
-        >>> if check_ffmpeg_installed():
-        ...     print("FFmpeg is available")
-        ... else:
-        ...     print("Please install FFmpeg")
     """
     return shutil.which("ffmpeg") is not None
 
@@ -133,11 +118,6 @@ def get_video_info(video_path: Path) -> Optional[dict]:
     
     Returns:
         dict: 비디오 정보 (코덱, 해상도, FPS 등) 또는 None
-    
-    Example:
-        >>> info = get_video_info(Path("output/rgb.mp4"))
-        >>> if info:
-        ...     print(f"Codec: {info['codec']}")
     """
     if not shutil.which("ffprobe"):
         return None

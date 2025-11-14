@@ -14,6 +14,9 @@ depth_source:
   depth_max : 2.5
   depth_min : 0.4
 
+preprocess:
+  tolerance_ns: 200000000  # 200ms window for stereo pairing
+
 visualization:
   point_radius: 0.005
   depth_thr_max: 1.0

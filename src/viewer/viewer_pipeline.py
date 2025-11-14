@@ -7,7 +7,7 @@ import rerun as rr
 import yaml
 from pathlib import Path
 from argparse import Namespace
-from src.preprocess.calibration import process_odometry
+from src.preprocess.sensor_module import process_odometry
 from src.preprocess.utils.depthmap_color import colorize_depth
 from src.viewer.rerun_blueprint import setup_rerun_blueprint, log_description
 from src.viewer.point_cloud import rotate_pointcloud

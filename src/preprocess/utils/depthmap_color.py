@@ -1,6 +1,5 @@
 """
 시각화 유틸리티 함수
-
 Depth 이미지 컬러맵 변환 등 시각화 관련 함수 제공
 """
 
@@ -25,11 +24,6 @@ def colorize_depth(depth_m: np.ndarray,
     
     Returns:
         RGB 컬러맵 이미지 (uint8, [H, W, 3])
-    
-    Example:
-        >>> depth = np.random.rand(480, 640) * 10.0  # 0~10m depth
-        >>> color_img = colorize_depth(depth, (0.5, 5.0))
-        >>> # color_img.shape == (480, 640, 3)
     """
     dd = depth_m.astype(np.float32).copy()
     valid = np.isfinite(dd) & (dd > 0)
