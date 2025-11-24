@@ -16,6 +16,7 @@ build/
 
 # Scripts
 *.ps1
+scripts/seperate_frame.py
 
 # Data, Models, and Outputs
 # These directories contain large files and should not be version controlled.
