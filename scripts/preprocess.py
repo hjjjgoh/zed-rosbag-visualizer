@@ -58,7 +58,7 @@ PreprocessPipeline 클래스를 사용하여 전처리 수행
 
 [요구사항]
     - autorootcwd 패키지 필요
-    - config.yaml에 ROS 토픽 설정 필요
+    - config/sensor_config.yaml에 ROS 토픽 설정 필요
     - models/model_best_bp2.pth 모델 파일 필요 (foundation depth 사용 시)
 """
 

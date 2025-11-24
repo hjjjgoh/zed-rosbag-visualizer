@@ -7,7 +7,7 @@ ViewerPipeline Module
 및 카메라 메타데이터(meta.json)를 불러와 Rerun 뷰어에서 시각화하는 파이프라인 클래스
 
 
-1) 설정(config.yaml, meta.json) 및 입력 데이터 로드
+1) 설정(config/sensor_config.yaml, meta.json) 및 입력 데이터 로드
 2) Rerun Blueprint 초기화 및 고정 요소(카메라 모델, 좌표축) 로깅
 3) RGB / Depth / Trajectory / PointCloud 시각화
 4) 거리·세그멘테이션 기반 마스크 적용
@@ -64,13 +64,13 @@ class ViewerPipeline:
     def _load_config(self):
         try:
             project_root = Path.cwd()
-            config_path = project_root / "config.yaml"
+            config_path = project_root / "config" / "sensor_config.yaml"
             with open(config_path, "r", encoding="utf-8") as f:
                 cfg = yaml.safe_load(f)
             print(f"Loaded config for visualization from: {config_path}")
             return cfg.get('visualization', {})
         except (FileNotFoundError, yaml.YAMLError):
-            print("Warning: config.yaml not found or invalid. Using default visualization parameters.")
+            print("Warning: config/sensor_config.yaml not found or invalid. Using default visualization parameters.")
             return {}
 
     def _load_json(self, path):
@@ -285,7 +285,7 @@ class ViewerPipeline:
     # ---------------------------------------------------------
     def _create_mask(self, rgb_np: np.ndarray, depth_m: np.ndarray) -> np.ndarray:
         """세그멘테이션 및 거리 기반으로 마스크 생성"""
-        # 1. 거리 마스크 (config.yaml 값으로 필터링)
+        # 1. 거리 마스크 (config/sensor_config.yaml 값으로 필터링)
         range_mask = (depth_m > self.filter_dmin) & (depth_m < self.filter_dmax)
 
         # 2. 세그멘테이션 마스크
@@ -320,7 +320,7 @@ class ViewerPipeline:
             # meta.json 값으로 실제 깊이(m) 복원
             depth_m = (dep_u8.astype(np.float32) / 255.0) * (self.meta_dmax - self.meta_dmin) + self.meta_dmin
             
-            # 마스크 생성 및 적용 (필터링은 config.yaml 값 사용)
+            # 마스크 생성 및 적용 (필터링은 config/sensor_config.yaml 값 사용)
             final_mask = self._create_mask(rgb_np, depth_m)
             masked_depth = depth_m.copy()
             masked_depth[~final_mask] = 0.0

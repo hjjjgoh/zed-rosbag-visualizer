@@ -72,14 +72,45 @@ class PreprocessPipeline:
         self.out_dir.mkdir(parents=True, exist_ok=True)
         
         # 2. 로거 설정 (로그 파일을 'logs/preprocess' 디렉토리에 저장)
-        log_dir = Path("logs/preprocess")
-        log_dir.mkdir(parents=True, exist_ok=True)
+        # 출력 디렉토리 구조를 분석하여 로그 경로 생성
+        # 예: output/preprocess/smartfarm_tomato_one/smartfarm_20251114_1 
+        #  -> logs/preprocess/smartfarm_tomato_one/smartfarm_20251114_1.log
+        # 예: output/smartfarm_tomato_moving_251114/1_1_b
+        #  -> logs/preprocess/smartfarm_tomato_moving_251114/1_1_b.log
         
-        out_dir_name = self.out_dir.name
-        if re.search(r"\d{6}", out_dir_name):
-            log_file_name = f"{out_dir_name}.log"
+        out_dir_parts = list(self.out_dir.parts)
+        if len(out_dir_parts) >= 2 and out_dir_parts[0] == "output":
+            if len(out_dir_parts) >= 3 and out_dir_parts[1] == "preprocess":
+                # output/preprocess/... 구조인 경우
+                # output/preprocess/smartfarm_tomato_one/smartfarm_20251114_1
+                # -> logs/preprocess/smartfarm_tomato_one/
+                if len(out_dir_parts) > 3:
+                    # 서브 디렉토리가 있는 경우
+                    log_dir = Path("logs") / "preprocess" / Path(*out_dir_parts[2:-1])
+                else:
+                    # 서브 디렉토리가 없는 경우
+                    log_dir = Path("logs/preprocess")
+                log_file_name = f"{self.out_dir.name}.log"
+            elif len(out_dir_parts) >= 3:
+                # output/.../... 구조인 경우 (예: output/smartfarm_tomato_moving_251114/1_1_b)
+                # output/smartfarm_tomato_moving_251114/1_1_b
+                # -> logs/preprocess/smartfarm_tomato_moving_251114/
+                log_dir = Path("logs") / "preprocess" / Path(*out_dir_parts[1:-1])
+                log_file_name = f"{self.out_dir.name}.log"
+            else:
+                # output/... 구조인 경우 (서브 디렉토리 없음)
+                log_dir = Path("logs/preprocess")
+                log_file_name = f"{self.out_dir.name}.log"
         else:
-            log_file_name = f"{out_dir_name}_{datetime.now().strftime('%y%m%d')}.log"
+            # 기본 동작: logs/preprocess에 저장
+            log_dir = Path("logs/preprocess")
+            out_dir_name = self.out_dir.name
+            if re.search(r"\d{6}", out_dir_name):
+                log_file_name = f"{out_dir_name}.log"
+            else:
+                log_file_name = f"{out_dir_name}_{datetime.now().strftime('%y%m%d')}.log"
+        
+        log_dir.mkdir(parents=True, exist_ok=True)
         log_file_path = log_dir / log_file_name
                 
         root_logger = logging.getLogger()
@@ -116,8 +147,8 @@ class PreprocessPipeline:
         self._initialize_processors()
     
     def _load_configuration(self):
-        """config.yaml 및 카메라 파라미터 로드"""
-        with open("config.yaml", "r", encoding="utf-8") as f:
+        """config/sensor_config.yaml 및 카메라 파라미터 로드"""
+        with open("config/sensor_config.yaml", "r", encoding="utf-8") as f:
             cfg = yaml.safe_load(f)
         
         # ROS 토픽
@@ -135,7 +166,8 @@ class PreprocessPipeline:
 
         # 스테레오 매칭 허용치 (ns)
         preprocess_cfg = cfg.get("preprocess", {})
-        self.tolerance_ns = int(preprocess_cfg.get("tolerance_ns", self.DEFAULT_TOLERANCE_NS))
+        DEFAULT_TOLERANCE_NS = 200_000_000  # 200ms
+        self.tolerance_ns = int(preprocess_cfg.get("tolerance_ns", DEFAULT_TOLERANCE_NS))
         
         # 카메라 intrinsic parameter
         w_src, h_src, cx, cy, fx, fy = get_camera_parameter(

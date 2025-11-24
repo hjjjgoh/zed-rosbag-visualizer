@@ -8,7 +8,7 @@
     - foundation_stereo: FoundationStereo 모델 및 관련 서브모듈
 """
 
-from .stereo_frame_processor import StereoFrameProcessor
+from .stereo_frame_processor import StereoProcessor
 from .stereo_estimator import DisparityEstimator, msg_to_rgb_numpy
 from .intrinsic_parameter import get_camera_parameter, check_rosbag_path
 from .odometry import process_odometry

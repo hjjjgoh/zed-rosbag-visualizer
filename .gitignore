@@ -14,6 +14,9 @@ dist/
 build/
 *.egg-info/
 
+# Scripts
+*.ps1
+
 # Data, Models, and Outputs
 # These directories contain large files and should not be version controlled.
 data/
@@ -23,3 +26,4 @@ data/analyze/
 
 # Jupyter Notebook checkpoints
 .ipynb_checkpoints/
+
