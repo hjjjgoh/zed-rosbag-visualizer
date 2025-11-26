@@ -22,7 +22,6 @@ scripts/seperate_frame.py
 # These directories contain large files and should not be version controlled.
 data/
 output/
-models/
 data/analyze/
 
 # Jupyter Notebook checkpoints
